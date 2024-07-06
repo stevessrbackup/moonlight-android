@@ -5,6 +5,7 @@ import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
+import com.limelight.binding.input.advance_setting.ControllerManager;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
@@ -23,7 +24,6 @@ import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
-import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -93,9 +93,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
         PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
     private int lastButtonState = 0;
+    private static final int TOUCH_CONTEXT_LENGTH = 2;
 
     // Only 2 touches are supported
-    private final TouchContext[] touchContextMap = new TouchContext[2];
+    private TouchContext[] touchContextMap = new TouchContext[TOUCH_CONTEXT_LENGTH];
+    private final TouchContext[] absoluteTouchContextMap = new TouchContext[TOUCH_CONTEXT_LENGTH];
+    private final TouchContext[] relativeTouchContextMap = new TouchContext[TOUCH_CONTEXT_LENGTH];
     private long threeFingerDownTime = 0;
 
     private static final int REFERENCE_HORIZ_RES = 1280;
@@ -112,6 +115,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private VirtualController virtualController;
+
+    private ControllerManager controllerManager;
 
     private PreferenceConfiguration prefConfig;
     private SharedPreferences tombstonePrefs;
@@ -492,16 +497,19 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
 
+
         // Initialize touch contexts
-        for (int i = 0; i < touchContextMap.length; i++) {
-            if (!prefConfig.touchscreenTrackpad) {
-                touchContextMap[i] = new AbsoluteTouchContext(conn, i, streamView);
-            }
-            else {
-                touchContextMap[i] = new RelativeTouchContext(conn, i,
-                        REFERENCE_HORIZ_RES, REFERENCE_VERT_RES,
-                        streamView, prefConfig);
-            }
+        for (int i = 0; i < TOUCH_CONTEXT_LENGTH; i++) {
+            absoluteTouchContextMap[i] = new AbsoluteTouchContext(conn, i, streamView);
+            relativeTouchContextMap[i] = new RelativeTouchContext(conn, i,
+                    REFERENCE_HORIZ_RES, REFERENCE_VERT_RES,
+                    streamView, prefConfig);
+        }
+        if (!prefConfig.touchscreenTrackpad) {
+            touchContextMap = absoluteTouchContextMap;
+        }
+        else {
+            touchContextMap = relativeTouchContextMap;
         }
 
         if (prefConfig.onscreenController) {
@@ -511,6 +519,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     this);
             virtualController.refreshLayout();
             virtualController.show();
+        }
+
+        if (prefConfig.onscreenKeyboard) {
+            // create virtual onscreen keyboard
+            controllerManager = new ControllerManager((FrameLayout)streamView.getParent(),this);
+            controllerManager.refreshLayout();
         }
 
         if (prefConfig.usbDriver) {
@@ -584,6 +598,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (virtualController != null) {
             // Refresh layout of OSC for possible new screen size
             virtualController.refreshLayout();
+        }
+        if (controllerManager != null) {
+            // Refresh layout of OSC for possible new screen size
+            System.out.println("wangguan test game");
+            controllerManager.refreshLayout();
         }
 
         // Hide on-screen overlays in PiP mode
@@ -1475,6 +1494,27 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
         else {
             return null;
+        }
+    }
+
+    public TouchContext[] getTouchContextMap() {
+        return touchContextMap;
+    }
+
+    /**
+     * false : RelativeTouchContext
+     * true : AbsoluteTouchContext
+     */
+    public void setTouchMode(boolean enableRelativeTouch){
+        for (int i = 0; i < touchContextMap.length; i++) {
+            if (enableRelativeTouch) {
+                prefConfig.touchscreenTrackpad = true;
+                touchContextMap = relativeTouchContextMap;
+            }
+            else {
+                prefConfig.touchscreenTrackpad = false;
+                touchContextMap = absoluteTouchContextMap;
+            }
         }
     }
 
@@ -2672,5 +2712,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             default:
                 return false;
         }
+    }
+
+
+
+    public ControllerHandler getControllerHandler() {
+        return controllerHandler;
     }
 }
